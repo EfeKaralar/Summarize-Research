@@ -40,11 +40,24 @@ class PaperFetcher:
 
 class ArxivFetcher(PaperFetcher):
     """Fetcher for papers from arXiv."""
-    def fetch_papers(self, query: str, max_results: int = 10) -> List[Paper]:
-        """Fetch papers from arXiv based on a query."""
+    def fetch_papers(self, query: str, max_results: int = 10, sort_by_date: bool = False) -> List[Paper]:
+        """
+        Fetch papers from arXiv based on a query.
+        
+        Args:
+            query (str): Search query for papers
+            max_results (int): Maximum number of results to return
+            sort_by_date (bool): If True, sort results by submission date (newest first)
+        
+        Returns:
+            List[Paper]: List of found papers
+        """
         logger.info(f"Fetching papers from arXiv with query: {query}")
         
-        # Handle both author and field queries
+        # Determine sort criteria
+        sort_criteria = arxiv.SortCriterion.SubmittedDate if sort_by_date else arxiv.SortCriterion.Relevance
+        
+        # Handle both author and field queries (author queries always sort by date)
         if query.startswith("author:"):
             search = arxiv.Search(
                 query=query,
@@ -55,7 +68,7 @@ class ArxivFetcher(PaperFetcher):
             search = arxiv.Search(
                 query=query,
                 max_results=max_results,
-                sort_by=arxiv.SortCriterion.Relevance
+                sort_by=sort_criteria
             )
         
         papers = []
@@ -71,7 +84,7 @@ class ArxivFetcher(PaperFetcher):
             )
             papers.append(paper)
         
-        logger.info(f"Found {len(papers)} papers on arXiv")
+        logger.info(f"Found {len(papers)} papers on arXiv{' (sorted by date)' if sort_by_date else ''}")
         return papers
     
     def fetch_paper_content(self, paper: Paper) -> Paper:
@@ -292,11 +305,23 @@ class ResearchPaperSummarizer:
     def __init__(self, llm_summarizer: LLMSummarizer, paper_fetcher: PaperFetcher = None):
         self.llm_summarizer = llm_summarizer
         self.paper_fetcher = paper_fetcher or ArxivFetcher()
+        self.session_id = time.strftime("%Y%m%d_%H%M%S")  # Generate a unique session ID based on timestamp
     
-    def search_and_summarize(self, query: str, max_results: int = 5, download_full_text: bool = True) -> List[Paper]:
-        """Search for papers and summarize them."""
+    def search_and_summarize(self, query: str, max_results: int = 5, download_full_text: bool = True, sort_by_date: bool = False) -> List[Paper]:
+        """
+        Search for papers and summarize them.
+        
+        Args:
+            query (str): Search query for papers
+            max_results (int): Maximum number of results to return
+            download_full_text (bool): Whether to download and extract the full text from PDFs
+            sort_by_date (bool): If True, sort results by submission date (newest first)
+        
+        Returns:
+            List[Paper]: List of papers with summaries
+        """
         # Get papers
-        papers = self.paper_fetcher.fetch_papers(query, max_results)
+        papers = self.paper_fetcher.fetch_papers(query, max_results, sort_by_date)
         
         # Download full text if requested
         if download_full_text:
@@ -320,10 +345,45 @@ class ResearchPaperSummarizer:
         
         return papers
     
-    def save_summaries(self, papers: List[Paper], output_dir: str = "summaries"):
-        """Save paper summaries to files."""
-        os.makedirs(output_dir, exist_ok=True)
+    def get_session_folder(self, base_dir: str = "summaries") -> str:
+        """
+        Get the folder for the current session.
         
+        Args:
+            base_dir (str): Base directory for all summary sessions
+            
+        Returns:
+            str: Path to the session folder
+        """
+        # Create a safe folder name that includes the session ID and a timestamp
+        session_folder = os.path.join(base_dir, self.session_id)
+        os.makedirs(session_folder, exist_ok=True)
+        return session_folder
+    
+    def save_summaries(self, papers: List[Paper], output_dir: str = None):
+        """
+        Save paper summaries to files in a session-specific folder.
+        
+        Args:
+            papers (List[Paper]): List of papers with summaries
+            output_dir (str, optional): Custom output directory. If None, uses session folder.
+        """
+        # If no custom output directory provided, use session folder
+        if output_dir is None:
+            output_dir = self.get_session_folder()
+        else:
+            os.makedirs(output_dir, exist_ok=True)
+        
+        # Create session info file with metadata
+        with open(os.path.join(output_dir, "_session_info.md"), 'w', encoding='utf-8') as f:
+            f.write(f"# Research Summary Session\n\n")
+            f.write(f"**Date:** {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            f.write(f"**Number of Papers:** {len(papers)}\n\n")
+            f.write("## Papers in this Session\n\n")
+            for paper in papers:
+                f.write(f"- {paper.title} ({', '.join(paper.authors[:3])}{', et al.' if len(paper.authors) > 3 else ''})\n")
+        
+        # Save individual paper summaries
         for paper in papers:
             # Create a safe filename from the title
             safe_title = re.sub(r'[^\w\s-]', '', paper.title)
@@ -381,12 +441,29 @@ class ResearchPaperSummarizer:
 
 # Example usage
 def main():
+    import argparse
+    import sys
+    
+    # Set up command line argument parsing
+    parser = argparse.ArgumentParser(description="Research Paper Summarizer")
+    parser.add_argument("query", nargs="?", default="Large language models", help="Search query for papers")
+    parser.add_argument("-n", "--num-results", type=int, default=3, help="Number of papers to fetch (default: 3)")
+    parser.add_argument("-s", "--sort-by-date", action="store_true", help="Sort results by date (newest first)")
+    parser.add_argument("-o", "--output-dir", help="Custom output directory")
+    parser.add_argument("-p", "--provider", default=os.environ.get("LLM_PROVIDER", "deepseek"), 
+                        choices=["anthropic", "openai", "deepseek"], help="LLM provider to use")
+    parser.add_argument("-f", "--full-text", action="store_true", default=True, 
+                        help="Download and use full text for summarization")
+    parser.add_argument("-a", "--api-key", help="API key (overrides environment variable)")
+    
+    args = parser.parse_args()
+    
     # Configure API keys (use appropriate key based on provider selection)
-    api_key = os.environ.get("API_KEY")
-    provider = os.environ.get("LLM_PROVIDER", "deepseek").lower()
+    api_key = args.api_key or os.environ.get("API_KEY")
+    provider = args.provider.lower()
     
     if not api_key:
-        raise ValueError("API_KEY environment variable is not set")
+        raise ValueError("API key must be provided either via --api-key or API_KEY environment variable")
     
     # Create components based on selected provider
     if provider == "anthropic":
@@ -406,31 +483,39 @@ def main():
         paper_fetcher=fetcher
     )
     
-    # Get search query from command line or use default
-    import sys
-    query = sys.argv[1] if len(sys.argv) > 1 else "Large language models"
-    max_results = int(sys.argv[2]) if len(sys.argv) > 2 else 3
-    
-    print(f"Searching for: {query}")
+    print(f"Research Paper Summarizer")
+    print(f"------------------------")
+    print(f"Searching for: {args.query}")
+    print(f"Number of papers: {args.num_results}")
+    print(f"Sort by date: {'Yes' if args.sort_by_date else 'No'}")
     print(f"Using {provider.capitalize()} for summarization")
     
     # Search for papers on a topic
     papers = paper_summarizer.search_and_summarize(
-        query=query,
-        max_results=max_results,
-        download_full_text=True
+        query=args.query,
+        max_results=args.num_results,
+        download_full_text=args.full_text,
+        sort_by_date=args.sort_by_date
     )
     
     # Save summaries
-    paper_summarizer.save_summaries(papers)
+    output_dir = paper_summarizer.save_summaries(papers, args.output_dir)
     
     # Print summary of the first paper
     if papers:
         print(f"\nTitle: {papers[0].title}")
         print(f"Authors: {', '.join(papers[0].authors)}")
-        print("\nSummary:")
-        print(papers[0].summary)
-        print(f"\nSaved {len(papers)} summaries to the 'summaries' directory")
+        print("\nSummary excerpt:")
+        # Print just the first few lines of the summary
+        summary_lines = papers[0].summary.split('\n')
+        print('\n'.join(summary_lines[:5]) + ('...' if len(summary_lines) > 5 else ''))
+        
+        # Get the session folder for output message
+        session_folder = args.output_dir or paper_summarizer.get_session_folder()
+        print(f"\nSaved {len(papers)} summaries to: {session_folder}")
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
