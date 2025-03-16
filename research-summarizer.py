@@ -306,6 +306,7 @@ class ResearchPaperSummarizer:
         self.llm_summarizer = llm_summarizer
         self.paper_fetcher = paper_fetcher or ArxivFetcher()
         self.session_id = time.strftime("%Y%m%d_%H%M%S")  # Generate a unique session ID based on timestamp
+        self.search_query = None  # Store the search query for folder naming
     
     def search_and_summarize(self, query: str, max_results: int = 5, download_full_text: bool = True, sort_by_date: bool = False) -> List[Paper]:
         """
@@ -320,6 +321,9 @@ class ResearchPaperSummarizer:
         Returns:
             List[Paper]: List of papers with summaries
         """
+        # Store the search query for folder naming
+        self.search_query = query
+        
         # Get papers
         papers = self.paper_fetcher.fetch_papers(query, max_results, sort_by_date)
         
@@ -355,8 +359,20 @@ class ResearchPaperSummarizer:
         Returns:
             str: Path to the session folder
         """
-        # Create a safe folder name that includes the session ID and a timestamp
-        session_folder = os.path.join(base_dir, self.session_id)
+        # Create a safe query string for folder name
+        safe_query = ""
+        if self.search_query:
+            # Replace problematic characters and limit length
+            safe_query = re.sub(r'[^\w\s-]', '', self.search_query)
+            safe_query = re.sub(r'[\s-]+', '_', safe_query).strip('_').lower()
+            safe_query = safe_query[:50]  # Limit length
+        
+        # Create folder name with timestamp and query
+        folder_name = self.session_id
+        if safe_query:
+            folder_name += f"_{safe_query}"
+            
+        session_folder = os.path.join(base_dir, folder_name)
         os.makedirs(session_folder, exist_ok=True)
         return session_folder
     
@@ -367,6 +383,9 @@ class ResearchPaperSummarizer:
         Args:
             papers (List[Paper]): List of papers with summaries
             output_dir (str, optional): Custom output directory. If None, uses session folder.
+            
+        Returns:
+            str: Path to the folder where summaries were saved
         """
         # If no custom output directory provided, use session folder
         if output_dir is None:
@@ -378,6 +397,7 @@ class ResearchPaperSummarizer:
         with open(os.path.join(output_dir, "_session_info.md"), 'w', encoding='utf-8') as f:
             f.write(f"# Research Summary Session\n\n")
             f.write(f"**Date:** {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            f.write(f"**Search Query:** {self.search_query}\n\n")
             f.write(f"**Number of Papers:** {len(papers)}\n\n")
             f.write("## Papers in this Session\n\n")
             for paper in papers:
@@ -401,6 +421,7 @@ class ResearchPaperSummarizer:
                 f.write(f"{paper.summary}\n\n")
         
         logger.info(f"Saved {len(papers)} summaries to {output_dir}")
+        return output_dir
     
     def summarize_from_pdf(self, pdf_path: str) -> Paper:
         """Summarize a paper from a local PDF file."""
