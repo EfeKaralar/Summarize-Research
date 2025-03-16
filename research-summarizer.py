@@ -11,6 +11,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 import time
 import logging
+import argparse
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -30,7 +31,7 @@ class Paper:
 
 class PaperFetcher:
     """Base class for fetching papers from different sources."""
-    def fetch_papers(self, query: str, max_results: int = 10) -> List[Paper]:
+    def fetch_papers(self, query: str, max_results: int = 10, sort_by_date: bool = False) -> List[Paper]:
         """Fetch papers based on a query."""
         raise NotImplementedError("Subclasses must implement this method")
     
@@ -123,6 +124,10 @@ class LLMSummarizer:
     def summarize(self, paper: Paper) -> str:
         """Summarize a paper using an LLM."""
         raise NotImplementedError("Subclasses must implement this method")
+        
+    def generate_comparative_analysis(self, papers: List[Paper]) -> str:
+        """Generate a comparative analysis of multiple papers."""
+        raise NotImplementedError("Subclasses must implement this method")
 
 class AnthropicSummarizer(LLMSummarizer):
     """Summarizer using Anthropic's Claude API."""
@@ -182,6 +187,60 @@ class AnthropicSummarizer(LLMSummarizer):
         except Exception as e:
             logger.error(f"Error using Anthropic API: {str(e)}")
             return f"Error generating summary: {str(e)}"
+    
+    def generate_comparative_analysis(self, papers: List[Paper]) -> str:
+        """Generate a comparative analysis of papers using Anthropic's Claude API."""
+        if not papers:
+            return "No papers available for analysis."
+        
+        # Prepare a condensed representation of each paper
+        paper_summaries = []
+        for i, paper in enumerate(papers, 1):
+            paper_info = f"""
+            Paper {i}:
+            Title: {paper.title}
+            Authors: {', '.join(paper.authors)}
+            Published: {paper.published_date or 'Not specified'}
+            
+            Abstract: {paper.abstract[:300]}...
+            
+            Key points from summary:
+            {paper.summary[:500]}...
+            """
+            paper_summaries.append(paper_info)
+        
+        # Create a prompt for comparative analysis
+        prompt = f"""
+        I have {len(papers)} research papers on a related topic. Based on the summaries provided, please:
+        
+        1. Identify common themes, methodologies, or findings across these papers
+        2. Highlight how these papers complement or contradict each other
+        3. Identify knowledge gaps or opportunities for future research
+        4. Provide an integrated overview that synthesizes the key contributions of this collection
+        5. Suggest how these papers collectively advance our understanding of the field
+        
+        Here are the papers:
+        
+        {''.join(paper_summaries)}
+        """
+        
+        payload = {
+            "model": self.model,
+            "max_tokens": 2048,  # Longer response for comprehensive analysis
+            "messages": [
+                {"role": "user", "content": prompt}
+            ]
+        }
+        
+        try:
+            response = requests.post(self.api_url, headers=self.headers, json=payload)
+            response.raise_for_status()
+            result = response.json()
+            analysis = result["content"][0]["text"]
+            return analysis
+        except Exception as e:
+            logger.error(f"Error using Anthropic API for comparative analysis: {str(e)}")
+            return f"Error generating comparative analysis: {str(e)}"
 
 class OpenAISummarizer(LLMSummarizer):
     """Summarizer using OpenAI's API."""
@@ -241,6 +300,60 @@ class OpenAISummarizer(LLMSummarizer):
             logger.error(f"Error using OpenAI API: {str(e)}")
             return f"Error generating summary: {str(e)}"
             
+    def generate_comparative_analysis(self, papers: List[Paper]) -> str:
+        """Generate a comparative analysis of papers using OpenAI's API."""
+        if not papers:
+            return "No papers available for analysis."
+        
+        # Prepare a condensed representation of each paper
+        paper_summaries = []
+        for i, paper in enumerate(papers, 1):
+            paper_info = f"""
+            Paper {i}:
+            Title: {paper.title}
+            Authors: {', '.join(paper.authors)}
+            Published: {paper.published_date or 'Not specified'}
+            
+            Abstract: {paper.abstract[:300]}...
+            
+            Key points from summary:
+            {paper.summary[:500]}...
+            """
+            paper_summaries.append(paper_info)
+        
+        # Create a prompt for comparative analysis
+        prompt = f"""
+        I have {len(papers)} research papers on a related topic. Based on the summaries provided, please:
+        
+        1. Identify common themes, methodologies, or findings across these papers
+        2. Highlight how these papers complement or contradict each other
+        3. Identify knowledge gaps or opportunities for future research
+        4. Provide an integrated overview that synthesizes the key contributions of this collection
+        5. Suggest how these papers collectively advance our understanding of the field
+        
+        Here are the papers:
+        
+        {''.join(paper_summaries)}
+        """
+        
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 2048  # Longer response for comprehensive analysis
+        }
+        
+        try:
+            response = requests.post(self.api_url, headers=self.headers, json=payload)
+            response.raise_for_status()
+            result = response.json()
+            analysis = result["choices"][0]["message"]["content"]
+            return analysis
+        except Exception as e:
+            logger.error(f"Error using OpenAI API for comparative analysis: {str(e)}")
+            return f"Error generating comparative analysis: {str(e)}"
+
 class DeepSeekSummarizer(LLMSummarizer):
     """Summarizer using DeepSeek's API."""
     def __init__(self, api_key: str, model: str = "deepseek-chat"):
@@ -299,6 +412,61 @@ class DeepSeekSummarizer(LLMSummarizer):
         except Exception as e:
             logger.error(f"Error using DeepSeek API: {str(e)}")
             return f"Error generating summary: {str(e)}"
+            
+    def generate_comparative_analysis(self, papers: List[Paper]) -> str:
+        """Generate a comparative analysis of papers using DeepSeek's API."""
+        if not papers:
+            return "No papers available for analysis."
+        
+        # Prepare a condensed representation of each paper
+        paper_summaries = []
+        for i, paper in enumerate(papers, 1):
+            paper_info = f"""
+            Paper {i}:
+            Title: {paper.title}
+            Authors: {', '.join(paper.authors)}
+            Published: {paper.published_date or 'Not specified'}
+            
+            Abstract: {paper.abstract[:300]}...
+            
+            Key points from summary:
+            {paper.summary[:500]}...
+            """
+            paper_summaries.append(paper_info)
+        
+        # Create a prompt for comparative analysis
+        prompt = f"""
+        I have {len(papers)} research papers on a related topic. Based on the summaries provided, please:
+        
+        1. Identify common themes, methodologies, or findings across these papers
+        2. Highlight how these papers complement or contradict each other
+        3. Identify knowledge gaps or opportunities for future research
+        4. Provide an integrated overview that synthesizes the key contributions of this collection
+        5. Suggest how these papers collectively advance our understanding of the field
+        
+        Here are the papers:
+        
+        {''.join(paper_summaries)}
+        """
+        
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 2048,  # Longer response for comprehensive analysis
+            "temperature": 0.2  # Slightly higher temperature for creative synthesis but still factual
+        }
+        
+        try:
+            response = requests.post(self.api_url, headers=self.headers, json=payload)
+            response.raise_for_status()
+            result = response.json()
+            analysis = result["choices"][0]["message"]["content"]
+            return analysis
+        except Exception as e:
+            logger.error(f"Error using DeepSeek API for comparative analysis: {str(e)}")
+            return f"Error generating comparative analysis: {str(e)}"
 
 class ResearchPaperSummarizer:
     """Main class to orchestrate the paper fetching and summarization process."""
@@ -420,64 +588,141 @@ class ResearchPaperSummarizer:
                 f.write("## Summary\n\n")
                 f.write(f"{paper.summary}\n\n")
         
+        # Generate and save comparative analysis if there are multiple papers
+        if len(papers) > 1:
+            logger.info("Generating comparative analysis across papers")
+            analysis = self.llm_summarizer.generate_comparative_analysis(papers)
+            
+            # Save the analysis to a special file
+            with open(os.path.join(output_dir, "_comparative_analysis.md"), 'w', encoding='utf-8') as f:
+                f.write(f"# Comparative Analysis of Research Papers\n\n")
+                f.write(f"**Search Query:** {self.search_query}\n\n")
+                f.write(f"**Number of Papers:** {len(papers)}\n\n")
+                f.write("## Research Integration and Synthesis\n\n")
+                f.write(analysis)
+        
         logger.info(f"Saved {len(papers)} summaries to {output_dir}")
         return output_dir
-    
-    def summarize_from_pdf(self, pdf_path: str) -> Paper:
-        """Summarize a paper from a local PDF file."""
-        try:
-            # Extract text from PDF
-            with open(pdf_path, 'rb') as file:
-                pdf_reader = PyPDF2.PdfReader(file)
-                text = ""
-                for page_num in range(len(pdf_reader.pages)):
-                    page = pdf_reader.pages[page_num]
-                    text += page.extract_text()
+        
+    def generate_comparative_analysis_for_directory(self, directory_path: str):
+        """
+        Generate a comparative analysis for an existing directory of paper summaries.
+        
+        Args:
+            directory_path (str): Path to directory containing paper summaries
             
-            # Clean up the text
-            text = re.sub(r'\n+', '\n', text)
-            text = re.sub(r'\s+', ' ', text)
-            
-            # Try to extract title and authors from the first page
-            first_page = pdf_reader.pages[0].extract_text()
-            
-            # Create a Paper object with extracted information
-            paper = Paper(
-                title=os.path.basename(pdf_path),  # Just use filename as fallback
-                authors=["Unknown"],
-                abstract="",
-                url="",
-                full_text=text
-            )
-            
-            # Summarize
-            summary = self.llm_summarizer.summarize(paper)
-            paper.summary = summary
-            
-            return paper
-            
-        except Exception as e:
-            logger.error(f"Error processing PDF: {str(e)}")
-            raise
+        Returns:
+            str: Path to the generated comparative analysis file
+        """
+        # Check if directory exists
+        if not os.path.isdir(directory_path):
+            raise ValueError(f"Directory not found: {directory_path}")
+        
+        # Find all markdown files that are not special files
+        md_files = [f for f in os.listdir(directory_path) 
+                   if f.endswith('.md') and not f.startswith('_')]
+        
+        if not md_files:
+            logger.warning(f"No markdown files found in {directory_path}")
+            return None
+        
+        # Load papers from markdown files
+        papers = []
+        for md_file in md_files:
+            file_path = os.path.join(directory_path, md_file)
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Extract paper information using regex
+                title_match = re.search(r'^# (.+)$', content, re.MULTILINE)
+                authors_match = re.search(r'\*\*Authors:\*\* (.+)$', content, re.MULTILINE)
+                published_match = re.search(r'\*\*Published:\*\* (.+)$', content, re.MULTILINE)
+                url_match = re.search(r'\*\*URL:\*\* (.+)$', content, re.MULTILINE)
+                abstract_match = re.search(r'## Abstract\s+\n(.+?)(?=\n## Summary)', content, re.DOTALL)
+                summary_match = re.search(r'## Summary\s+\n(.+?)$', content, re.DOTALL)
+                
+                if title_match and summary_match:
+                    title = title_match.group(1).strip()
+                    authors = authors_match.group(1).split(', ') if authors_match else ["Unknown"]
+                    published = published_match.group(1) if published_match else "Not specified"
+                    url = url_match.group(1) if url_match else ""
+                    abstract = abstract_match.group(1).strip() if abstract_match else ""
+                    summary = summary_match.group(1).strip() if summary_match else ""
+                    
+                    paper = Paper(
+                        title=title,
+                        authors=authors,
+                        abstract=abstract,
+                        url=url,
+                        published_date=published,
+                        summary=summary
+                    )
+                    
+                    papers.append(paper)
+            except Exception as e:
+                logger.error(f"Error parsing paper from {md_file}: {str(e)}")
+        
+        if not papers:
+            logger.warning("No valid papers could be extracted from the markdown files")
+            return None
+        
+        # Generate comparative analysis
+        logger.info(f"Generating comparative analysis for {len(papers)} papers in {directory_path}")
+        analysis = self.llm_summarizer.generate_comparative_analysis(papers)
+        
+        # Save the analysis to a special file
+        output_file = os.path.join(directory_path, "_comparative_analysis.md")
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(f"# Comparative Analysis of Research Papers\n\n")
+            f.write(f"**Directory:** {os.path.basename(directory_path)}\n\n")
+            f.write(f"**Number of Papers:** {len(papers)}\n\n")
+            f.write("## Papers Analyzed\n\n")
+            for paper in papers:
+                f.write(f"- {paper.title} ({', '.join(paper.authors[:3])}{', et al.' if len(paper.authors) > 3 else ''})\n")
+            f.write("\n## Research Integration and Synthesis\n\n")
+            f.write(analysis)
+        
+        logger.info(f"Saved comparative analysis to {output_file}")
+        return output_file
 
-# Example usage
 def main():
-    import argparse
-    import sys
-    
+    """Main entry point for the application."""
     # Set up command line argument parsing
     parser = argparse.ArgumentParser(description="Research Paper Summarizer")
-    parser.add_argument("query", nargs="?", default="Large language models", help="Search query for papers")
-    parser.add_argument("-n", "--num-results", type=int, default=3, help="Number of papers to fetch (default: 3)")
-    parser.add_argument("-s", "--sort-by-date", action="store_true", help="Sort results by date (newest first)")
-    parser.add_argument("-o", "--output-dir", help="Custom output directory")
-    parser.add_argument("-p", "--provider", default=os.environ.get("LLM_PROVIDER", "deepseek"), 
+    subparsers = parser.add_subparsers(dest="command", help="Command to run")
+    
+    # Search command
+    search_parser = subparsers.add_parser("search", help="Search and summarize papers")
+    search_parser.add_argument("query", nargs="?", default="Large language models", help="Search query for papers")
+    search_parser.add_argument("-n", "--num-results", type=int, default=3, help="Number of papers to fetch (default: 3)")
+    search_parser.add_argument("-s", "--sort-by-date", action="store_true", help="Sort results by date (newest first)")
+    search_parser.add_argument("-o", "--output-dir", help="Custom output directory")
+    search_parser.add_argument("-p", "--provider", default=os.environ.get("LLM_PROVIDER", "deepseek"), 
                         choices=["anthropic", "openai", "deepseek"], help="LLM provider to use")
-    parser.add_argument("-f", "--full-text", action="store_true", default=True, 
+    search_parser.add_argument("-f", "--full-text", action="store_true", default=True, 
                         help="Download and use full text for summarization")
-    parser.add_argument("-a", "--api-key", help="API key (overrides environment variable)")
+    search_parser.add_argument("-a", "--api-key", help="API key (overrides environment variable)")
+    
+    # Analyze command
+    analyze_parser = subparsers.add_parser("analyze", help="Generate comparative analysis for an existing directory")
+    analyze_parser.add_argument("directory", help="Directory containing paper summaries")
+    analyze_parser.add_argument("-p", "--provider", default=os.environ.get("LLM_PROVIDER", "deepseek"), 
+                        choices=["anthropic", "openai", "deepseek"], help="LLM provider to use")
+    analyze_parser.add_argument("-a", "--api-key", help="API key (overrides environment variable)")
     
     args = parser.parse_args()
+    
+    # Default to search if no command is specified
+    if not args.command:
+        args.command = "search"
+        args.query = "Large language models"
+        args.num_results = 3
+        args.sort_by_date = False
+        args.output_dir = None
+        args.provider = os.environ.get("LLM_PROVIDER", "deepseek")
+        args.full_text = True
+        args.api_key = None
     
     # Configure API keys (use appropriate key based on provider selection)
     api_key = args.api_key or os.environ.get("API_KEY")
@@ -496,47 +741,60 @@ def main():
     else:
         raise ValueError(f"Unsupported provider: {provider}. Choose anthropic, openai, or deepseek")
     
-    fetcher = ArxivFetcher()
-    
     # Create the main orchestrator
     paper_summarizer = ResearchPaperSummarizer(
         llm_summarizer=summarizer,
-        paper_fetcher=fetcher
+        paper_fetcher=ArxivFetcher()
     )
     
-    print(f"Research Paper Summarizer")
-    print(f"------------------------")
-    print(f"Searching for: {args.query}")
-    print(f"Number of papers: {args.num_results}")
-    print(f"Sort by date: {'Yes' if args.sort_by_date else 'No'}")
-    print(f"Using {provider.capitalize()} for summarization")
-    
-    # Search for papers on a topic
-    papers = paper_summarizer.search_and_summarize(
-        query=args.query,
-        max_results=args.num_results,
-        download_full_text=args.full_text,
-        sort_by_date=args.sort_by_date
-    )
-    
-    # Save summaries
-    output_dir = paper_summarizer.save_summaries(papers, args.output_dir)
-    
-    # Print summary of the first paper
-    if papers:
-        print(f"\nTitle: {papers[0].title}")
-        print(f"Authors: {', '.join(papers[0].authors)}")
-        print("\nSummary excerpt:")
-        # Print just the first few lines of the summary
-        summary_lines = papers[0].summary.split('\n')
-        print('\n'.join(summary_lines[:5]) + ('...' if len(summary_lines) > 5 else ''))
+    if args.command == "search":
+        print(f"Research Paper Summarizer")
+        print(f"------------------------")
+        print(f"Searching for: {args.query}")
+        print(f"Number of papers: {args.num_results}")
+        print(f"Sort by date: {'Yes' if args.sort_by_date else 'No'}")
+        print(f"Using {provider.capitalize()} for summarization")
         
-        # Get the session folder for output message
-        session_folder = args.output_dir or paper_summarizer.get_session_folder()
-        print(f"\nSaved {len(papers)} summaries to: {session_folder}")
-
-if __name__ == "__main__":
-    main()
+        # Search for papers on a topic
+        papers = paper_summarizer.search_and_summarize(
+            query=args.query,
+            max_results=args.num_results,
+            download_full_text=args.full_text,
+            sort_by_date=args.sort_by_date
+        )
+        
+        # Save summaries
+        output_dir = paper_summarizer.save_summaries(papers, args.output_dir)
+        
+        # Print summary of the first paper
+        if papers:
+            print(f"\nTitle: {papers[0].title}")
+            print(f"Authors: {', '.join(papers[0].authors)}")
+            print("\nSummary excerpt:")
+            # Print just the first few lines of the summary
+            summary_lines = papers[0].summary.split('\n')
+            print('\n'.join(summary_lines[:5]) + ('...' if len(summary_lines) > 5 else ''))
+            
+            # Get the session folder for output message
+            session_folder = args.output_dir or paper_summarizer.get_session_folder()
+            print(f"\nSaved {len(papers)} summaries to: {session_folder}")
+            
+            if len(papers) > 1:
+                print(f"\nA comparative analysis of the papers has been generated in: {os.path.join(session_folder, '_comparative_analysis.md')}")
+    
+    elif args.command == "analyze":
+        print(f"Generating Comparative Analysis")
+        print(f"------------------------------")
+        print(f"Directory: {args.directory}")
+        print(f"Using {provider.capitalize()} for analysis")
+        
+        # Generate comparative analysis for existing directory
+        output_file = paper_summarizer.generate_comparative_analysis_for_directory(args.directory)
+        
+        if output_file:
+            print(f"\nComparative analysis has been generated in: {output_file}")
+        else:
+            print("\nFailed to generate comparative analysis. See log for details.")
 
 if __name__ == "__main__":
     main()
